@@ -1,4 +1,4 @@
-# Smart-Attend — Face Recognition Attendance System
+# Smart Attendance System Using Face Recognition and Location-Based Verification
 
 Short summary: Smart-Attend is a local, Tkinter-based attendance system that uses face recognition (dlib/face_recognition/OpenCV) to record period-wise attendance, notify parents/teachers, and provide management tools for school/college staff.
 
