@@ -1,0 +1,24 @@
+{
+  "paper": {
+    "title": "Student Attendance System using Face Recognition",
+    "features": ["Viola-Jones/HAAR","KNN","SVM","CNN","Face detection","Face recognition","Attendance via webcam","CSV database"]
+  },
+  "project": {
+    "features_detected": {
+      "Viola-Jones/HAAR": false,
+      "KNN": true,
+      "SVM": true,
+      "CNN": true,
+      "Face detection": true,
+      "Face recognition": true,
+      "Attendance via webcam": true,
+      "CSV database": true
+    },
+    "module_counts": {
+      "detection_related_files": 3,
+      "recognition_related_files": 4,
+      "gui_files": 3,
+      "utility_files": 5
+    }
+  }
+}

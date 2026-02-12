@@ -1,0 +1,11 @@
+numpy
+opencv-python
+face_recognition
+scikit-learn
+joblib
+Pillow
+pandas
+dlib
+ultralytics
+tkcalendarrequests
+twilio

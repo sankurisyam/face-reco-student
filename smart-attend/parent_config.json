@@ -1,0 +1,34 @@
+{
+    "email": {
+        "enabled": true,
+        "smtp_server": "smtp.gmail.com",
+        "smtp_port": 587,
+        "sender_email": "sankuridany7",
+        "sender_password": "rawg swes baee qftz",
+        "sender_name": "vignan"
+    },
+    "sms": {
+        "enabled": true,
+        "provider": "fast2sms",
+        "account_sid": "",
+        "auth_token": "vTan30WVzLsGjpHySexFfrOZXgmQoKRU8Bh6Di4IclYbJ7N9Pq1vxDR9CHlrMTJoubf0BeWhUiLES5nz",
+        "from_number": "+1234567890"
+    },
+    "notifications": {
+        "send_daily_summary": true,
+        "send_on_absence": true,
+        "send_on_low_attendance": true,
+        "low_attendance_threshold": 70,
+        "send_time": "16:00",
+        "weekly_report": true,
+        "weekly_report_day": "Friday",
+        "auto_send_per_period": true,
+        "auto_send_delay_seconds": 5
+    },
+    "templates": {
+        "attendance_marked": "Attendance marked for {student_name} ({roll_no}) on {date} at {time}",
+        "absence_alert": "ALERT: {student_name} ({roll_no}) was absent on {date}. Contact them!",
+        "low_attendance_alert": "WARNING: {student_name}'s attendance is {attendance_percentage}% (Threshold: {threshold}%)",
+        "daily_summary": "Daily Attendance Summary for {student_name}: Present: {present} | Absent: {absent} | Percentage: {percentage}%"
+    }
+}

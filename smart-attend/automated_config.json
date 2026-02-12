@@ -1,0 +1,37 @@
+{
+    "class_timings": {
+        "Period1": "10:00",
+        "Period2": "11:00",
+        "Period3": "12:15",
+        "Period4": "13:15",
+        "Period5": "15:10",
+        "Period6": "16:05",
+        "Period7": "17:00"
+    },
+    "class_schedule": {
+        "Period1": {"start": "09:00", "end": "10:00", "name": "1st Period"},
+        "Period2": {"start": "10:00", "end": "11:00", "name": "2nd Period"},
+        "Period3": {"start": "11:15", "end": "12:15", "name": "3rd Period"},
+        "Period4": {"start": "12:15", "end": "13:15", "name": "4th Period"},
+        "Period5": {"start": "14:15", "end": "15:10", "name": "5th Period"},
+        "Period6": {"start": "15:10", "end": "16:05", "name": "6th Period"},
+        "Period7": {"start": "16:05", "end": "17:00", "name": "7th Period"}
+    },
+    "camera_settings": {
+        "default_source": "mobile",
+        "ip_webcam_url": "http://192.168.191.132:8080/video",
+        "backup_source": "laptop"
+    },
+    "notification_settings": {
+        "enabled": true,
+        "send_on_absence": true,
+        "send_on_low_attendance": true,
+        "low_attendance_threshold": 70
+    },
+    "system_settings": {
+        "automated_mode": true,
+        "log_level": "INFO",
+        "check_interval_seconds": 30,
+        "max_retry_attempts": 3
+    }
+}

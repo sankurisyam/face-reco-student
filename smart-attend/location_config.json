@@ -1,0 +1,19 @@
+{
+    "college_name": "hostel",
+    "latitude": 16.2344053,
+    "longitude": 80.548107,
+    "radius_meters": 200,
+    "wifi_ssids": [
+        "SM HOSTEL8",
+        "SAIHOSTEL GF2",
+        "SAIHOSTEL 21",
+        "SAIHOSTEL R7"
+    ],
+    "enable_gps": true,
+    "enable_wifi": true,
+    "enable_ip_check": false,
+    "allowed_ip_ranges": [
+        "192.168.1.0/24"
+    ],
+    "verification_required": true
+}
