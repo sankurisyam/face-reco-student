@@ -362,21 +362,35 @@ class ModernAttendanceGUI:
         ttk.Label(setup_frame, text="Period:").grid(row=0, column=0, padx=5, pady=5)
         self.period_var = tk.StringVar(value="1")
         period_combo = ttk.Combobox(setup_frame, textvariable=self.period_var,
-                                   values=[str(i) for i in range(1, 7)], width=10)
+                                   values=[str(i) for i in range(1, 7)], width=8)
         period_combo.grid(row=0, column=1, padx=5, pady=5)
 
+        # Branch selection (required now)
+        ttk.Label(setup_frame, text="Branch:").grid(row=0, column=2, padx=5, pady=5)
+        # reuse central branch_var so branch choice stays consistent across UI
+        try:
+            self.branch_var
+        except AttributeError:
+            self.branch_var = tk.StringVar(value="CSE")
+        branch_combo = ttk.Combobox(setup_frame, textvariable=self.branch_var,
+                                    values=['CSE', 'AIML', 'CSD', 'CAI', 'CSM'], width=8)
+        branch_combo.grid(row=0, column=3, padx=5, pady=5)
+
         # Camera source
-        ttk.Label(setup_frame, text="Camera:").grid(row=0, column=2, padx=5, pady=5)
+        ttk.Label(setup_frame, text="Camera:").grid(row=0, column=4, padx=5, pady=5)
         self.camera_var = tk.StringVar(value="mobile")
         camera_combo = ttk.Combobox(setup_frame, textvariable=self.camera_var,
-                                   values=["mobile", "laptop"], width=10)
-        camera_combo.grid(row=0, column=3, padx=5, pady=5)
+                                   values=["mobile", "laptop"], width=8)
+        camera_combo.grid(row=0, column=5, padx=5, pady=5)
 
         # Start button
         ttk.Button(setup_frame, text="🚀 Start Attendance Session",
                   command=self.start_attendance_system,
-                  style="Success.TButton").grid(row=0, column=4, padx=10, pady=5)
+                  style="Success.TButton").grid(row=0, column=6, padx=10, pady=5)
 
+        # Teacher confirmation button (teachers can mark they have taken attendance)
+        ttk.Button(setup_frame, text="✅ Teacher: Confirm Attendance Taken",
+                  command=self.teacher_confirm_attendance, style="Secondary.TButton").grid(row=1, column=0, columnspan=2, padx=5, pady=6, sticky=tk.W)
         # Additional options
         options_frame = ttk.LabelFrame(self.attendance_frame, text="Additional Options", padding=15)
         options_frame.pack(fill=tk.X, padx=20, pady=10)
@@ -487,7 +501,29 @@ class ModernAttendanceGUI:
                             if current_time >= period_end_time:
                                 # Check if notifications already sent for this period today
                                 if not self.check_notifications_sent_today(period_num, current_date):
-                                    self.send_period_absence_notifications(period_num, current_date)
+                                    # First, detect branches with missing attendance and notify teachers
+                                    missing_branches = self.notify_teachers_if_attendance_missing(period_num, current_date)
+
+                                    # If attendance was not taken for some branches, build an explanatory note from templates
+                                    if missing_branches:
+                                        try:
+                                            from parent_notifications import ParentNotificationManager
+                                            pm = ParentNotificationManager()
+                                            tpl = pm.config.get('templates', {}).get('absence_auto_mark_note')
+                                            if tpl:
+                                                # use template (period substituted)
+                                                note = tpl.format(period=period_num)
+                                            else:
+                                                note = "Attendance was NOT taken by the class teacher — students have been marked Absent for this period automatically."
+                                        except Exception:
+                                            note = "Attendance was NOT taken by the class teacher — students have been marked Absent for this period automatically."
+                                    else:
+                                        note = None
+
+                                    # Send parent absence notifications; pass missing_branches so parents in those branches get the 'not taken by teacher' note
+                                    self.send_period_absence_notifications(period_num, current_date, auto_marked_branches=missing_branches, auto_mark_note=note)
+
+                                    # Record that notifications were sent for the period
                                     self.mark_notifications_sent(period_num, current_date)
                         except ValueError:
                             continue
@@ -512,6 +548,64 @@ class ModernAttendanceGUI:
             pass
         return False
 
+    # ---------------- Teacher confirmation persistence ----------------
+    def _teacher_confirmations_path(self):
+        return 'teacher_confirmations.json'
+
+    def is_teacher_confirmed(self, branch, period, date):
+        """Return True if teacher has confirmed attendance for branch/period/date."""
+        try:
+            import json
+            path = self._teacher_confirmations_path()
+            if not os.path.exists(path):
+                return False
+            with open(path, 'r') as f:
+                data = json.load(f)
+            return bool(data.get(date, {}).get(branch, {}).get(f'Period{period}'))
+        except Exception:
+            return False
+
+    def confirm_teacher_attendance(self, branch, period, date=None):
+        """Store teacher confirmation for branch/period/date (date defaults to today)."""
+        try:
+            import json
+            if date is None:
+                date = datetime.now().strftime('%d/%m/%Y')
+            path = self._teacher_confirmations_path()
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    data = json.load(f)
+            else:
+                data = {}
+            data.setdefault(date, {})
+            data[date].setdefault(branch, {})
+            data[date][branch][f'Period{period}'] = True
+            with open(path, 'w') as f:
+                json.dump(data, f, indent=2)
+            return True
+        except Exception as e:
+            return False
+
+    def teacher_confirm_attendance(self):
+        """GUI handler: teacher confirms they took attendance for selected branch/period."""
+        try:
+            period = int(self.period_var.get())
+            branch = self.branch_var.get() if hasattr(self, 'branch_var') else None
+            date = datetime.now().strftime('%d/%m/%Y')
+            if not branch:
+                messagebox.showerror('Error', 'Please select a branch before confirming')
+                return
+            ok = messagebox.askyesno('Confirm Attendance', f"Confirm that teacher for {branch} has taken attendance for Period {period} on {date}?")
+            if not ok:
+                return
+            if self.confirm_teacher_attendance(branch, period, date=date):
+                messagebox.showinfo('Confirmed', f'Teacher confirmation saved for {branch} Period {period} ({date})')
+                self.update_notification_status(f"✅ Teacher confirmed for {branch} Period {period} ({date})")
+            else:
+                messagebox.showerror('Error', 'Failed to save confirmation')
+        except Exception as e:
+            messagebox.showerror('Error', f'Failed to confirm: {e}')
+
     def mark_notifications_sent(self, period, date):
         """Mark that notifications were sent for this period"""
         try:
@@ -521,22 +615,23 @@ class ModernAttendanceGUI:
         except:
             pass
 
-    def send_period_absence_notifications(self, period, date):
+    def send_period_absence_notifications(self, period, date, auto_marked_branches=None, auto_mark_note: str = None, branch: str = None):
         """Send absence notifications for a specific period.
 
-        Behavior changed:
-        - If a student does not have an attendance row for the given date, create one
-          and mark only the requested period as 'Absent'.
-        - If a row exists but the period cell is blank/missing, treat it as Absent.
-        - Save any changes back to the attendance CSV before sending notifications.
+        Parameters:
+        - period, date: as before
+        - auto_marked_branches: optional list of branch names where attendance was auto-marked because it was not taken
+        - auto_mark_note: optional note to append to parent messages for auto-marked branches
+        - branch: optional branch to restrict processing to a single branch
         """
         try:
             from parent_notifications import ParentNotificationManager
             import pandas as pd
 
             notifier = ParentNotificationManager()
-            branches = ['AIML', 'CAI', 'CSD', 'CSE', 'CSM']
+            branches = [branch] if branch else ['AIML', 'CAI', 'CSD', 'CSE', 'CSM']
             total_sent = 0
+            auto_marked_branches = auto_marked_branches or []
 
             for branch in branches:
                 attendance_file = f"Attendance_Records/Attendance_{branch}.csv"
@@ -597,13 +692,16 @@ class ModernAttendanceGUI:
                         str(row.get(period_col, '')).strip().lower() == 'absent'):
                         absent_students.append({
                             'roll_no': str(row['RollNo']).strip(),
-                            'name': str(row.get('Name', '')).strip()
+                            'name': str(row.get('Name', '')).strip(),
+                            'branch': branch
                         })
 
                 # Send notifications
                 for student in absent_students:
                     try:
-                        notifier.notify_absence(student['name'], student['roll_no'], date)
+                        # If this student's branch was auto-marked, append explanatory note to parent message
+                        note = auto_mark_note if student.get('branch') in auto_marked_branches else None
+                        notifier.notify_absence(student['name'], student['roll_no'], date, note=note)
                         total_sent += 1
                     except Exception as e:
                         self.update_notification_status(f"❌ Failed to notify {student['name']}: {str(e)}")
@@ -616,6 +714,110 @@ class ModernAttendanceGUI:
         except Exception as e:
             self.update_notification_status(f"❌ Error sending notifications for period {period}: {str(e)}")
 
+    def send_period_attendance_to_parents(self, period, date, branch: str = None):
+        """Send period-wise attendance status to parents for a specific branch or for all branches if branch is None."""
+        try:
+            from parent_notifications import ParentNotificationManager
+            import pandas as pd
+
+            notifier = ParentNotificationManager()
+            branches = [branch] if branch else ['AIML', 'CAI', 'CSD', 'CSE', 'CSM']
+            total_msgs = 0
+
+            for branch in branches:
+                attendance_file = f"Attendance_Records/Attendance_{branch}.csv"
+                if not os.path.exists(attendance_file):
+                    continue
+
+                df = pd.read_csv(attendance_file)
+                period_col = f'Period{period}'
+
+                # Ensure column exists
+                if period_col not in df.columns:
+                    df[period_col] = ''
+
+                # For each row matching today's date, send parent a short status
+                for _, row in df.iterrows():
+                    if str(row.get('Date', '')) != date:
+                        continue
+                    roll = str(row.get('RollNo', '')).strip()
+                    name = str(row.get('Name', '')).strip()
+                    val = str(row.get(period_col, '')).strip()
+
+                    status = 'Present' if val.lower() in ['present', 'p'] else ('Absent' if val.lower() in ['absent', 'a'] else 'Not marked')
+
+                    try:
+                        notifier.notify_period_summary(name, roll, date, period, status)
+                        total_msgs += 1
+                    except Exception as e:
+                        self.update_notification_status(f"❌ Failed to send period summary for {name}: {str(e)}")
+
+            if total_msgs > 0:
+                self.update_notification_status(f"✅ Period {period} summaries sent to parents ({total_msgs} messages)")
+            else:
+                self.update_notification_status(f"ℹ️ Period {period}: No parent summaries sent (no records for today)")
+
+        except Exception as e:
+            self.update_notification_status(f"❌ Error sending period summaries: {str(e)}")
+
+    def notify_teachers_if_attendance_missing(self, period, date, branch: str = None):
+        """Detect branches where attendance was not taken for a period, notify teacher,
+        and return a list of branches where attendance was missing.
+
+        If a teacher has already confirmed attendance for a branch/period/date, that branch is skipped.
+        If `branch` is provided, check only that branch.
+        """
+        missing_branches = []
+        try:
+            from parent_notifications import ParentNotificationManager
+            import pandas as pd
+
+            notifier = ParentNotificationManager()
+            branches = [branch] if branch else ['AIML', 'CAI', 'CSD', 'CSE', 'CSM']
+            notified = 0
+
+            for branch in branches:
+                # Skip if teacher already confirmed
+                if self.is_teacher_confirmed(branch, period, date):
+                    continue
+
+                attendance_file = f"Attendance_Records/Attendance_{branch}.csv"
+                if not os.path.exists(attendance_file):
+                    continue
+
+                df = pd.read_csv(attendance_file)
+                period_col = f'Period{period}'
+
+                # If there are no rows for today's date, consider attendance not taken
+                todays_rows = df[df['Date'] == date]
+                if todays_rows.empty:
+                    notifier.notify_teacher_attendance_missing(branch, period, date, details="No attendance rows for today")
+                    missing_branches.append(branch)
+                    notified += 1
+                    continue
+
+                # If >90% of today's rows have blank/NaN for the period, treat as not taken
+                total = len(todays_rows)
+                if period_col in todays_rows.columns:
+                    blank_count = todays_rows[period_col].astype(str).apply(lambda x: 1 if str(x).strip() == '' or str(x).strip().lower()=='nan' else 0).sum()
+                else:
+                    blank_count = total
+
+                if total > 0 and (blank_count / total) >= 0.9:
+                    notifier.notify_teacher_attendance_missing(branch, period, date,
+                                                               details=f"{blank_count}/{total} records not marked for Period {period}")
+                    missing_branches.append(branch)
+                    notified += 1
+
+            if notified > 0:
+                self.update_notification_status(f"⚠️ Notified {notified} class teacher(s) about missing attendance")
+            else:
+                self.update_notification_status(f"✅ Attendance appears taken for Period {period} in all branches checked")
+
+        except Exception as e:
+            self.update_notification_status(f"❌ Error checking/alerting teachers: {str(e)}")
+
+        return missing_branches
     def check_period_status(self):
         """Check current period status and show information"""
         try:
@@ -654,34 +856,89 @@ class ModernAttendanceGUI:
 
                     status_msg += f"{period_name}: {start_time}-{end_time} [{status}]\n"
 
+            # Also show teacher confirmations for the selected branch (if set)
+            try:
+                branch = self.branch_var.get() if hasattr(self, 'branch_var') else None
+                confirmations = []
+                if branch:
+                    for p in range(1, 7):
+                        confirmed = self.is_teacher_confirmed(branch, p, current_date)
+                        confirmations.append(f"P{p}: {'Teacher confirmed' if confirmed else 'Not confirmed'}")
+                    status_msg += "\n📚 Teacher confirmations for branch {branch}: " + ", ".join(confirmations)
+            except Exception:
+                pass
+
             self.update_notification_status(status_msg)
 
         except Exception as e:
             self.update_notification_status(f"❌ Error checking period status: {str(e)}")
 
     def send_manual_notifications(self):
-        """Send manual absence notifications for a specific period"""
-        # Create a dialog to select period
+        """Send manual notifications or period-wise reports for a specific period."""
+        # Create a dialog to select period and options
         dialog = tk.Toplevel(self.root)
         dialog.title("Send Manual Notifications")
-        dialog.geometry("300x200")
+        dialog.geometry("360x260")
         dialog.resizable(False, False)
 
-        ttk.Label(dialog, text="Select Period:", font=("Arial", 10, "bold")).pack(pady=10)
+        ttk.Label(dialog, text="Select Period:", font=("Arial", 10, "bold")).pack(pady=8)
 
         period_var = tk.StringVar(value="1")
         period_combo = ttk.Combobox(dialog, textvariable=period_var,
                                    values=[str(i) for i in range(1, 7)], width=10)
-        period_combo.pack(pady=5)
+        period_combo.pack(pady=4)
+
+        # Branch selector for manual notifications
+        ttk.Label(dialog, text="Branch:", font=("Arial", 9)).pack(pady=(6, 0))
+        branch_var = tk.StringVar(value=(self.branch_var.get() if hasattr(self, 'branch_var') else 'CSE'))
+        branch_combo = ttk.Combobox(dialog, textvariable=branch_var, values=['CSE', 'AIML', 'CSD', 'CAI', 'CSM'], width=14)
+        branch_combo.pack(pady=4)
+
+        # Options
+        send_summary_var = tk.BooleanVar(value=True)
+        notify_teacher_var = tk.BooleanVar(value=True)
+
+        ttk.Checkbutton(dialog, text="Send period-wise summary to parents", variable=send_summary_var).pack(pady=6)
+        ttk.Checkbutton(dialog, text="Notify class teacher if attendance not taken", variable=notify_teacher_var).pack(pady=6)
+
+        info_label = ttk.Label(dialog, text="Note: 'Notify teacher' requires teacher contact in parent_config.json",
+                               wraplength=320, foreground=self.colors['gray'])
+        info_label.pack(pady=(4, 10))
 
         def send_notifications():
             period = int(period_var.get())
             date = datetime.now().strftime('%d/%m/%Y')
+            selected_branch = branch_var.get() if branch_var.get() else None
             dialog.destroy()
-            self.send_period_absence_notifications(period, date)
+
+            # If user requested, detect missing attendance and notify teacher first for the selected branch
+            missing_branches = []
+            if notify_teacher_var.get():
+                missing_branches = self.notify_teachers_if_attendance_missing(period, date, branch=selected_branch)
+
+            if send_summary_var.get():
+                # send only to selected branch when provided
+                self.send_period_attendance_to_parents(period, date, branch=selected_branch)
+
+            # If some branches were missing attendance, add explanatory note for parents
+            note = None
+            if missing_branches:
+                try:
+                    from parent_notifications import ParentNotificationManager
+                    pm = ParentNotificationManager()
+                    tpl = pm.config.get('templates', {}).get('absence_auto_mark_note')
+                    note = tpl.format(period=period) if tpl else "Attendance was NOT taken by the class teacher; student marked Absent automatically."
+                except Exception:
+                    note = "Attendance was NOT taken by the class teacher; student marked Absent automatically."
+
+            # Send absence notifications and auto-mark where needed (restrict to selected branch if provided)
+            self.send_period_absence_notifications(period, date, auto_marked_branches=missing_branches, auto_mark_note=note, branch=selected_branch)
+
             self.mark_notifications_sent(period, date)
 
-        ttk.Button(dialog, text="Send Notifications", command=send_notifications).pack(pady=20)
+        ttk.Button(dialog, text="Send", command=send_notifications, style="Primary.TButton").pack(pady=12)
+
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack()
 
     def update_notification_status(self, message):
         """Update the notification status display"""
@@ -692,8 +949,16 @@ class ModernAttendanceGUI:
             self.notification_status_text.config(state=tk.DISABLED)
             self.notification_status_text.see(tk.END)
 
-        # Schedule update on main thread
-        self.root.after(0, update)
+        # Schedule update on main thread if root still exists
+        try:
+            if hasattr(self, 'root') and self.root.winfo_exists():
+                self.root.after(0, update)
+            else:
+                # Root destroyed — silently skip update
+                logging.debug('Skipped notification status update because root no longer exists')
+        except Exception:
+            # Avoid exceptions when UI is shutting down
+            logging.debug('Failed to schedule notification status update; root may be closing')
 
     def create_tools_tab(self):
         """Create tools and utilities tab"""
@@ -1096,11 +1361,20 @@ For detailed documentation, see SYSTEM_FLOW.md and ADVANCED_FEATURES.md
             # Check location and time restrictions before starting attendance - MANDATORY
             from location_verification import LocationVerifier
             verifier = LocationVerifier()
-            verified, message, data, warnings = verifier.verify_location_and_time(period)
 
-            # Close progress window
-            progress_window.destroy()
-
+            try:
+                verified, message, data, warnings = verifier.verify_location_and_time(period)
+            finally:
+                # Always stop progressbar and safely destroy the window
+                try:
+                    progress_bar.stop()
+                except Exception:
+                    pass
+                try:
+                    if progress_window.winfo_exists():
+                        progress_window.destroy()
+                except Exception:
+                    pass
             if not verified:
                 # Verification failed - show warnings and prevent attendance
                 warning_msg = "❌ VERIFICATION FAILED\n\n"
@@ -1127,10 +1401,17 @@ For detailed documentation, see SYSTEM_FLOW.md and ADVANCED_FEATURES.md
                 if not messagebox.askyesno("Location Warnings", warning_msg):
                     return
 
-            # Import and run attendance
-            from attendance import run_attendance
-            self.root.destroy()  # Close management GUI
-            run_attendance(period, camera)
+            # Start attendance as a separate process (keeps Management GUI open)
+            branch = self.branch_var.get() if hasattr(self, 'branch_var') else None
+            attendance_script = os.path.join(os.getcwd(), 'attendance.py')
+            cmd = [sys.executable, attendance_script, '--period', str(period), '--source', camera]
+            if branch:
+                cmd += ['--branch', branch]
+            try:
+                subprocess.Popen(cmd)
+                self.update_notification_status(f"▶️ Attendance started for Period {period} (branch: {branch or 'ALL'})")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to start attendance process: {e}")
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start attendance: {str(e)}")

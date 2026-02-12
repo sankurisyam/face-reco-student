@@ -4,8 +4,9 @@ import numpy as np
 import face_recognition
 import os
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import dlib
+import json
 from scipy.spatial import distance as dist
 import tkinter as tk
 from tkinter import messagebox, simpledialog
@@ -38,6 +39,43 @@ try:
 except Exception:
     CACHING_AVAILABLE = False
     print("Face encoding cache not available - using regular loading")
+
+
+# Public helper: collect students metadata from Images_Attendance (used by tests)
+def get_students_data(images_path_local: str = 'Images_Attendance', branch_filter: str = None):
+    """Return list of student dicts found in images_path_local.
+    Each dict: {'RollNo','Name','Branch','img_path'}
+    When branch_filter is provided, only return students from that branch.
+    """
+    valid_prefixes_local = ('22FE1A', '23FE5A')
+    branches_list_local = ['CSE', 'AIML', 'CSD', 'CAI', 'CSM']
+    branch_codes_local = {
+        'CSD': '44',
+        'AIML': '61',
+        'CSE': '05',
+        'CAI': '43',
+        'CSM': '42'
+    }
+    result = []
+    for root_dir, dirs, files in os.walk(images_path_local):
+        for cl in files:
+            parts = os.path.splitext(cl)[0].split('_')
+            if len(parts) == 3:
+                rollno, name, student_branch = parts[0], parts[1].upper(), parts[2].upper()
+                if (rollno.startswith(valid_prefixes_local) and
+                    student_branch in branches_list_local and
+                    student_branch in branch_codes_local and
+                    rollno[-4:-2] == branch_codes_local[student_branch] and
+                    (branch_filter is None or student_branch == branch_filter)):
+                    img_path = os.path.join(root_dir, cl)
+                    if os.path.exists(img_path):
+                        result.append({
+                            'RollNo': rollno,
+                            'Name': name,
+                            'Branch': student_branch,
+                            'img_path': img_path
+                        })
+    return result
 
 # Optional YOLOv8 for phone detection
 try:
@@ -80,17 +118,19 @@ except Exception:
     load_joblib_model = None
     predict_embedding = None
 
-def run_attendance(period, source="mobile", automated=False):
+def run_attendance(period, source="mobile", automated=False, branch: str = None):
     """
     Run attendance session for a specific period
     automated=True runs in headless mode without GUI prompts
+    branch: optional branch filter (e.g. 'CSE'). If provided, only that branch's students will be processed.
     """
     # Location verification
     if LOCATION_VERIFICATION_AVAILABLE:
         try:
             verifier = LocationVerifier()
             if verifier.config.get('verification_required', False):
-                location_verified, location_message, location_data = verifier.verify_location()
+                # verify_location returns (verified, message, location_data, warnings)
+                location_verified, location_message, location_data, location_warnings = verifier.verify_location()
                 if not location_verified:
                     messagebox.showerror(
                         "Location Verification Failed",
@@ -98,6 +138,9 @@ def run_attendance(period, source="mobile", automated=False):
                     )
                     return
                 else:
+                    # show brief info and log any warnings
+                    if location_warnings:
+                        logging.warning("Location verification warnings: %s", location_warnings)
                     messagebox.showinfo("Location Verified", location_message)
         except Exception as e:
             logging.warning(f"Location verification error: {e}")
@@ -130,6 +173,56 @@ def run_attendance(period, source="mobile", automated=False):
     period_col = f'Period{period}'
     attendance_folder = 'Attendance_Records'
 
+    # --- Time window checks (college hours + period schedule) ---
+    try:
+        with open('location_config.json', 'r') as f:
+            cfg = json.load(f)
+        tr = cfg.get('attendance_time_restrictions', {})
+
+        # College-wide hours (fallback to 09:00-17:00)
+        college_hours = tr.get('college_hours', {'start': '09:00', 'end': '17:00'})
+        college_start = datetime.strptime(college_hours.get('start', '09:00'), '%H:%M').time()
+        college_end = datetime.strptime(college_hours.get('end', '17:00'), '%H:%M').time()
+        grace_min = int(tr.get('grace_period_minutes', 0) or 0)
+        now_time = datetime.now().time()
+        college_end_with_grace = (datetime.combine(datetime.today(), college_end) + timedelta(minutes=grace_min)).time()
+
+        if not (college_start <= now_time <= college_end_with_grace):
+            messagebox.showwarning(
+                "Not time to take attendance",
+                f"Attendance allowed only between {college_start.strftime('%H:%M')} and {college_end.strftime('%H:%M')}.\nCurrent time: {now_time.strftime('%H:%M')}"
+            )
+            return
+
+        # Period-specific check (if configured)
+        period_timings = tr.get('period_timings', {})
+        pinfo = period_timings.get(str(period))
+        if pinfo:
+            pstart = datetime.strptime(pinfo.get('start', '09:00'), '%H:%M').time()
+            pend = datetime.strptime(pinfo.get('end', '17:00'), '%H:%M').time()
+            p_grace = int(pinfo.get('grace_minutes', grace_min) or grace_min)
+            pend_with_grace = (datetime.combine(datetime.today(), pend) + timedelta(minutes=p_grace)).time()
+
+            if now_time < pstart:
+                messagebox.showwarning(
+                    "Period not started",
+                    f"Selected period (Period {period}) starts at {pstart.strftime('%H:%M')}.\nCurrent time: {now_time.strftime('%H:%M')}"
+                )
+                return
+
+            if now_time > pend_with_grace:
+                messagebox.showwarning(
+                    "Period attendance already completed",
+                    f"Attendance for Period {period} ended at {pend.strftime('%H:%M')} (grace {p_grace} min).\nCurrent time: {now_time.strftime('%H:%M')}"
+                )
+                return
+    except FileNotFoundError:
+        # No config available — allow by default
+        pass
+    except Exception:
+        # If parsing fails, allow attendance rather than block the user
+        pass
+
     branch_codes = {
         'CSD': '44',
         'AIML': '61',
@@ -139,6 +232,32 @@ def run_attendance(period, source="mobile", automated=False):
     }
     valid_prefixes = ('22FE1A', '23FE5A')
 
+    def get_students_data(images_path_local: str = 'Images_Attendance', branch_filter: str = None):
+        """Return list of student dicts found in images_path_local.
+        Each dict: {'RollNo','Name','Branch','img_path'}
+        When branch_filter is provided, only return students from that branch.
+        """
+        result = []
+        for root_dir, dirs, files in os.walk(images_path_local):
+            for cl in files:
+                parts = os.path.splitext(cl)[0].split('_')
+                if len(parts) == 3:
+                    rollno, name, student_branch = parts[0], parts[1].upper(), parts[2].upper()
+                    if (rollno.startswith(valid_prefixes) and
+                        student_branch in branches_list and
+                        student_branch in branch_codes and
+                        rollno[-4:-2] == branch_codes[student_branch] and
+                        (branch_filter is None or student_branch == branch_filter)):
+                        img_path = os.path.join(root_dir, cl)
+                        if os.path.exists(img_path):
+                            result.append({
+                                'RollNo': rollno,
+                                'Name': name,
+                                'Branch': student_branch,
+                                'img_path': img_path
+                            })
+        return result
+
     # Gather all students
     students = []
     images = []
@@ -146,24 +265,8 @@ def run_attendance(period, source="mobile", automated=False):
     images_path = 'Images_Attendance'
     students_data = []  # Store student info with image paths
     
-    # Collect all student information first
-    for root_dir, dirs, files in os.walk(images_path):
-        for cl in files:
-            parts = os.path.splitext(cl)[0].split('_')
-            if len(parts) == 3:
-                rollno, name, branch = parts[0], parts[1].upper(), parts[2].upper()
-                if (rollno.startswith(valid_prefixes) and
-                    branch in branches_list and
-                    branch in branch_codes and
-                    rollno[-4:-2] == branch_codes[branch]):
-                    img_path = os.path.join(root_dir, cl)
-                    if os.path.exists(img_path):
-                        students_data.append({
-                            'RollNo': rollno,
-                            'Name': name,
-                            'Branch': branch,
-                            'img_path': img_path
-                        })
+    # Collect all student information first (use helper)
+    students_data = get_students_data(images_path, branch)
     
     # Use caching if available for large datasets
     if CACHING_AVAILABLE and len(students_data) > 100:
@@ -171,34 +274,26 @@ def run_attendance(period, source="mobile", automated=False):
         cache = FaceEncodingCache()
         encodeListKnown, students = batch_encode_and_cache(students_data, cache)
     else:
-        # Original loading method for small datasets
-        for root_dir, dirs, files in os.walk(images_path):
-            for cl in files:
-                parts = os.path.splitext(cl)[0].split('_')
-                if len(parts) == 3:
-                    rollno, name, branch = parts[0], parts[1].upper(), parts[2].upper()
-                    if (rollno.startswith(valid_prefixes) and
-                        branch in branches_list and
-                        branch in branch_codes and
-                        rollno[-4:-2] == branch_codes[branch]):
-                        img_path = os.path.join(root_dir, cl)
-                        curImg = cv2.imread(img_path)
-                        if curImg is not None:
-                            images.append(curImg)
-                            students.append({'RollNo': rollno, 'Name': name, 'Branch': branch})
-                            image_files.append(img_path)
-        
+        # Original loading method for small datasets — use pre-collected students_data
+        for sd in students_data:
+            img_path = sd['img_path']
+            curImg = cv2.imread(img_path)
+            if curImg is not None:
+                images.append(curImg)
+                students.append({'RollNo': sd['RollNo'], 'Name': sd['Name'], 'Branch': sd['Branch']})
+                image_files.append(img_path)
+
         # Encode using original method
         def findEncodings(images):
             encodeList = []
             valid_students = []
-            
+
             for img, student in zip(images, students):
                 img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                
+
                 # Faster encoding for large datasets
                 encodes = face_recognition.face_encodings(img_rgb, model="small", num_jitters=1)
-                
+
                 if len(encodes) > 0:
                     candidate = encodes[0]
                     if encodeList:
@@ -207,9 +302,9 @@ def run_attendance(period, source="mobile", automated=False):
                             continue
                     encodeList.append(candidate)
                     valid_students.append(student)
-            
+
             return encodeList, valid_students
-        
+
         encodeListKnown, students = findEncodings(images)
 
     if not encodeListKnown:
@@ -829,3 +924,18 @@ def run_attendance(period, source="mobile", automated=False):
         logger.info(f"Attendance Complete: {final_message.replace(chr(10), ' | ')}")
     else:
         messagebox.showinfo("Attendance Complete", final_message)
+
+
+# CLI entrypoint so attendance can be launched as a separate process
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Run attendance session (CLI)')
+    parser.add_argument('--period', required=True, help='Period number (1-6)')
+    parser.add_argument('--source', default='mobile', help='Camera source: mobile or laptop')
+    parser.add_argument('--branch', default=None, help='Optional branch filter (e.g. CSE)')
+    args = parser.parse_args()
+    try:
+        run_attendance(args.period, args.source, branch=args.branch)
+    except Exception as e:
+        print(f"Error running attendance: {e}")
+        raise

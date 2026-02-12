@@ -4,19 +4,30 @@ from tkcalendar import DateEntry
 import pandas as pd
 import os
 import tkinter as tk
-from attendance import run_attendance
+import subprocess
+import sys
 from register import register_student
 from student_profile import show_student_profile
 from notification_settings import create_settings_window
 
-def start_attendance(period_var, cam_source_var, root):
+def start_attendance(period_var, cam_source_var, branch_var, root):
     period = period_var.get()
     if period not in ['1', '2', '3', '4', '5', '6']:
         messagebox.showerror("Invalid Input", "Please enter a period number (1-6).")
         return
+    branch = branch_var.get() if branch_var.get() else None
     source = cam_source_var.get()
-    root.destroy()
-    run_attendance(period, source)
+
+    # Start attendance as a separate process so the dashboard stays open
+    attendance_script = os.path.join(os.getcwd(), 'attendance.py')
+    cmd = [sys.executable, attendance_script, '--period', str(period), '--source', source]
+    if branch:
+        cmd += ['--branch', branch]
+    try:
+        subprocess.Popen(cmd)
+        messagebox.showinfo("Attendance Started", f"Attendance started for Period {period} (branch: {branch or 'ALL'}) in a separate window.")
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to start attendance process: {e}")
 
 def download_branch_by_date(branch_var, date_entry):
     branch = branch_var.get()
@@ -114,18 +125,20 @@ def build_gui():
     period_var = tk.StringVar()
     tk.Entry(root, textvariable=period_var, font=("Arial", 12)).grid(row=0, column=1, padx=10, pady=10)
 
+    # Branch selector (required when starting attendance)
+    tk.Label(root, text="Branch:", font=("Arial", 12)).grid(row=0, column=2, padx=10, pady=10)
+    branch_var = tk.StringVar(value="CSE")
+    branch_combo_top = ttk.Combobox(root, textvariable=branch_var, values=['CSE','AIML','CSD','CAI','CSM'], state="readonly", width=8)
+    branch_combo_top.grid(row=0, column=3, padx=10, pady=10)
+
     cam_source_var = tk.StringVar(value="mobile")
     tk.Label(root, text="Camera Source:", font=("Arial", 12)).grid(row=1, column=0, padx=10, pady=10)
     tk.Radiobutton(root, text="Mobile (IP Webcam)", variable=cam_source_var, value="mobile").grid(row=1, column=1, sticky="w")
     tk.Radiobutton(root, text="Laptop Webcam", variable=cam_source_var, value="laptop").grid(row=1, column=2, sticky="w")
-
+    
     tk.Button(root, text="Start Attendance",
-              command=lambda: start_attendance(period_var, cam_source_var, root),
-              bg="green", fg="white").grid(row=0, column=2, padx=10, pady=10)
-
-    # Top-level Download by Branch and Date
-    tk.Label(root, text="Download Branch CSV:", font=("Arial", 12)).grid(row=2, column=0, padx=10, pady=10)
-    branch_var = tk.StringVar(value="CSE")
+              command=lambda: start_attendance(period_var, cam_source_var, branch_var, root),
+              bg="green", fg="white").grid(row=0, column=4, padx=10, pady=10)
     branch_combo = ttk.Combobox(root, textvariable=branch_var,
                  values=['CSE', 'AIML', 'CSD', 'CAI', 'CSM'],
                  state="readonly")

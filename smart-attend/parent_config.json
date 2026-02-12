@@ -28,7 +28,18 @@
     "templates": {
         "attendance_marked": "Attendance marked for {student_name} ({roll_no}) on {date} at {time}",
         "absence_alert": "ALERT: {student_name} ({roll_no}) was absent on {date}. Contact them!",
+        "period_summary": "Period {period} status for {student_name} ({roll_no}) on {date}: {status}",
+        "teacher_attendance_missing": "Attendance not taken for {branch} on {date} for Period {period}. Please take attendance.",
+        "absence_auto_mark_note": "Note: Attendance was NOT taken by the class teacher for Period {period}; the student has been marked Absent automatically.",
         "low_attendance_alert": "WARNING: {student_name}'s attendance is {attendance_percentage}% (Threshold: {threshold}%)",
         "daily_summary": "Daily Attendance Summary for {student_name}: Present: {present} | Absent: {absent} | Percentage: {percentage}%"
+    },
+    "teacher_contact": {
+        "default": {
+            "name": "Class Teacher",
+            "email": "ssyamsaceo@gmail.com",
+            "mobile": "+911234567890"
+        },
+        "by_branch": {}
     }
 }

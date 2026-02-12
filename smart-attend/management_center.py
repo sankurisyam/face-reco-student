@@ -109,6 +109,14 @@ class ManagementGUI:
                   command=self.open_location_details,
                   style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 10), ipadx=20, ipady=10)
 
+        ttk.Button(row1_frame, text="⏱️ Edit Period Timings",
+                  command=self.open_period_timings,
+                  style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 10), ipadx=20, ipady=10)
+
+        ttk.Button(row1_frame, text="👩‍🏫 Manage Teacher Contacts",
+                  command=self.open_teacher_contacts,
+                  style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 10), ipadx=20, ipady=10)
+
         # Row 2: Attendance System
         row2_frame = ttk.Frame(parent)
         row2_frame.pack(fill=tk.X, pady=(0, 15))
@@ -165,6 +173,22 @@ class ManagementGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Location Details GUI: {str(e)}")
 
+    def open_period_timings(self):
+        """Open the Period Timings editor GUI"""
+        try:
+            subprocess.Popen([sys.executable, "period_timings_gui.py"])
+            messagebox.showinfo("Success", "Period Timings editor opened!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Period Timings editor: {str(e)}")
+
+    def open_teacher_contacts(self):
+        """Open the Teacher Contacts editor GUI"""
+        try:
+            subprocess.Popen([sys.executable, "teacher_contacts_gui.py"])
+            messagebox.showinfo("Success", "Teacher Contacts editor opened!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Teacher Contacts editor: {str(e)}")
+
     def start_attendance_system(self):
         """Start the main attendance system"""
         try:
@@ -182,7 +206,7 @@ class ManagementGUI:
                 """
 from location_verification import LocationVerifier
 v = LocationVerifier()
-verified, message, data = v.verify_location()
+verified, message, data, warnings = v.verify_location()
 print(f'Location Test Result: {\"PASSED\" if verified else \"FAILED\"}')
 print(f'Details: {message}')
                 """],

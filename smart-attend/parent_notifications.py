@@ -246,18 +246,22 @@ class ParentNotificationManager:
             if not parent.get('Parent_Mobile1') and not parent.get('Parent_Mobile2') and parent.get('Parent_Mobile'):
                 self.send_sms(parent['Parent_Mobile'], message)
     
-    def notify_absence(self, student_name, roll_no, date):
-        """Alert parent of student absence"""
+    def notify_absence(self, student_name, roll_no, date, note: str = None):
+        """Alert parent of student absence. Optional `note` will be appended to the message."""
         parent = self.get_parent_contact(roll_no)
         if not parent:
             return False
-        
+
         message = self.config['templates']['absence_alert'].format(
             student_name=student_name,
             roll_no=roll_no,
             date=date
         )
-        
+
+        if note:
+            # Append note on a new line for email/SMS
+            message = f"{message}\n{note}"
+
         success = True
         if parent.get('Parent_Email'):
             self.send_email(
@@ -265,7 +269,7 @@ class ParentNotificationManager:
                 "ALERT: Student Absence",
                 message
             )
-        
+
         # Send SMS to both mobile numbers if enabled
         if self.config['sms']['enabled']:
             if parent.get('Parent_Mobile1'):
@@ -275,7 +279,7 @@ class ParentNotificationManager:
             # Fallback to Parent_Mobile if the above are not available
             if not parent.get('Parent_Mobile1') and not parent.get('Parent_Mobile2') and parent.get('Parent_Mobile'):
                 self.send_sms(parent['Parent_Mobile'], message)
-        
+
         return success
     
     def notify_low_attendance(self, student_name, roll_no, attendance_percentage):
@@ -315,6 +319,67 @@ class ParentNotificationManager:
                 self.send_sms(parent['Parent_Mobile'], message)
         
         return success
+
+    def notify_period_summary(self, student_name, roll_no, date, period, status):
+        """Send a short period-wise attendance status to the parent."""
+        parent = self.get_parent_contact(roll_no)
+        if not parent:
+            return False
+
+        message = self.config['templates'].get('period_summary',
+                                              "Period {period} status for {student_name} ({roll_no}) on {date}: {status}").format(
+            student_name=student_name,
+            roll_no=roll_no,
+            date=date,
+            period=period,
+            status=status
+        )
+
+        # Email (optional) — use plain text
+        if parent.get('Parent_Email'):
+            self.send_email(parent['Parent_Email'], f"Period {period} Attendance Status", message)
+
+        # SMS (if enabled)
+        if self.config['sms']['enabled']:
+            if parent.get('Parent_Mobile1'):
+                self.send_sms(parent['Parent_Mobile1'], message)
+            if parent.get('Parent_Mobile2'):
+                self.send_sms(parent['Parent_Mobile2'], message)
+            if not parent.get('Parent_Mobile1') and not parent.get('Parent_Mobile2') and parent.get('Parent_Mobile'):
+                self.send_sms(parent['Parent_Mobile'], message)
+
+        return True
+
+    def notify_teacher_attendance_missing(self, branch, period, date, details=None):
+        """Notify the class teacher that attendance was not taken for a branch/period."""
+        # Try to get branch-specific teacher; otherwise use default
+        teacher_cfg = None
+        if isinstance(self.config.get('teacher_contact'), dict):
+            by_branch = self.config.get('teacher_contact', {}).get('by_branch', {})
+            teacher_cfg = by_branch.get(branch) or self.config.get('teacher_contact', {}).get('default')
+
+        if not teacher_cfg:
+            logger.warning("No teacher contact configured; cannot notify teacher.")
+            return False
+
+        message = self.config['templates'].get('teacher_attendance_missing',
+                                               "Attendance not taken for {branch} on {date} for Period {period}.").format(
+            branch=branch,
+            date=date,
+            period=period
+        )
+        if details:
+            message += f"\nDetails: {details}"
+
+        # Send email to teacher if available
+        if teacher_cfg.get('email'):
+            self.send_email(teacher_cfg['email'], f"Attendance Missing — {branch} Period {period}", message)
+
+        # Send SMS to teacher if configured and SMS is enabled
+        if self.config['sms']['enabled'] and teacher_cfg.get('mobile'):
+            self.send_sms(teacher_cfg['mobile'], message)
+
+        return True
     
     def send_daily_summary(self, student_name, roll_no, present, absent, percentage):
         """Send daily attendance summary to parent"""
