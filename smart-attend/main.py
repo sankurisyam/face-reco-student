@@ -1043,7 +1043,11 @@ class ModernAttendanceGUI:
         download_frame.pack(fill=tk.X, padx=20, pady=10)
 
         ttk.Label(download_frame, text="Branch:").grid(row=0, column=0, padx=5, pady=5)
-        self.branch_var = tk.StringVar(value="CSE")
+        # Reuse the central branch_var from Quick Start section to keep selection consistent
+        try:
+            self.branch_var
+        except AttributeError:
+            self.branch_var = tk.StringVar(value="CSE")
         branch_combo = ttk.Combobox(download_frame, textvariable=self.branch_var,
                                    values=['CSE', 'AIML', 'CSD', 'CAI', 'CSM'], width=10)
         branch_combo.grid(row=0, column=1, padx=5, pady=5)
