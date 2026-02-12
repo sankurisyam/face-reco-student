@@ -48,12 +48,6 @@ Short summary: Smart-Attend is a local, Tkinter-based attendance system that use
 
 - `test_branch_filter.py` — unit test for branch-based student discovery
 
-## Next recommended tasks
-
-- Add unit tests for time-check and auto-marking behavior
-- Add CI/integration tests and optional auto-deploy for notification credentials
-- Add a UI to manage teacher contacts (currently in `parent_config.json`)
-
 ## Quick start
 
 1. Install dependencies from `requirements.txt` (use the provided virtual environment recommended):
@@ -63,4 +57,3 @@ Short summary: Smart-Attend is a local, Tkinter-based attendance system that use
 
 ---
 
-If you want, I can also add CI tests, a sample `location_config.example.json`, or export an installer for Windows.
